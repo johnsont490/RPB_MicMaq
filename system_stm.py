@@ -704,12 +704,12 @@ class System: #need to set dict objects to exclude timeseries for metrics
 
         # fuel and grid cost calculations
         # Setup TEA calculation values: WACC, CRF, FCR, PVD
-        fuel_price_per_kg = 1.8
-        annual_fuel_mass = metrics['annual_fuel_mass_kg']
-        annual_fuel_cost = annual_fuel_mass * fuel_price_per_kg
-        NPV_fuel_cost = npf.npv(metrics['WACC_r'], np.array([annual_fuel_cost] * metrics['analysis_period']))
+        fuel_price_per_gal = 1.8 # $/gal
+        rho_liq_propane = 493 # kg/m3
+        annual_fuel_mass = np.array(metrics['annual_fuel_mass_kg'])
+        annual_fuel_gals = (annual_fuel_mass/rho_liq_propane) * 264.172
+        annual_fuel_cost = annual_fuel_gals * fuel_price_per_gal
         metrics['annual_fuel_cost_USD'] = annual_fuel_cost
-        metrics['NPV_fuel_cost_USD'] = NPV_fuel_cost
 
 
         def augment_array_np(arr, L):
@@ -727,6 +727,7 @@ class System: #need to set dict objects to exclude timeseries for metrics
         annual_renewables_NPV_arr=[]
         aug_batt_NPV_arr=[]
         aug_htr_NPV_arr=[]
+    
         annual_renewables = np.array(metrics['system_to_load_annual_MWh_e'])
         annual_grid = np.array(metrics['grid_to_load_annual_MWh_e'])
 
@@ -743,6 +744,7 @@ class System: #need to set dict objects to exclude timeseries for metrics
         metrics['system_cpx_htr_aug_annual'] = list(aug_htr)
         
         annual_renewables = augment_array_np(annual_renewables, metrics['analysis_period'])*1000
+        annual_fuel_cost = augment_array_np(annual_fuel_cost, metrics['analysis_period'])
         annual_grid = augment_array_np(annual_grid,metrics['analysis_period'])*1000*3.29*21.63/1000
 
         # Net Present Value Over Analysis Period
@@ -750,6 +752,7 @@ class System: #need to set dict objects to exclude timeseries for metrics
         NPV_htr_ARMO_N = npf.npv(metrics['WACC_r'], aug_htr[:metrics['analysis_period']])
         NPV_renewables_N = npf.npv(metrics['WACC_r'], annual_renewables[:metrics['analysis_period']])
         NPV_grid_N = npf.npv(metrics['WACC_r'], annual_grid[:metrics['analysis_period']])
+        NPV_fuel_cost_N = npf.npv(metrics['WACC_r'], annual_fuel_cost[:metrics['analysis_period']])
         
         OM_NPV_arr = []
         for v in range(metrics['analysis_period']):
@@ -763,6 +766,7 @@ class System: #need to set dict objects to exclude timeseries for metrics
         NPV_htr_ARMO_L = npf.npv(metrics['WACC_r'], aug_htr)
         NPV_renewables_L = npf.npv(metrics['WACC_r'], annual_renewables)
         NPV_grid_L = npf.npv(metrics['WACC_r'], annual_grid)
+        NPV_fuel_cost_L = npf.npv(metrics['WACC_r'], annual_fuel_cost)
         
         OM_NPV_arr = []
         for v in range(len(aug_batt)): # Assuming aug_batt and aug_htr have the same length as the project life
@@ -775,10 +779,9 @@ class System: #need to set dict objects to exclude timeseries for metrics
         annualized_OM = NPV_OM_N * metrics['CRF']
         annualized_ARMO = (NPV_batt_ARMO_N + NPV_htr_ARMO_N) * metrics['CRF']
         annualized_grid = NPV_grid_N * metrics['CRF']
-        annualized_fuel = NPV_fuel_cost * metrics['CRF']
+        annualized_fuel = NPV_fuel_cost_N * metrics['CRF']
 
-        annual_ARR = annualized_CAPEX + annualized_OM + annualized_ARMO #+ annualized_grid + annualized_fuel
-    
+        annual_ARR = annualized_CAPEX + annualized_OM + annualized_ARMO + annualized_fuel
 
         # Calculate residual value for longer project life compared to analysis period (e.g. = 0 for n=L)
         Rv = ((((1 + metrics['WACC_r']) ** metrics['analysis_period']) * ((1 - NPV_renewables_N / NPV_renewables_L) * (metrics['system_capex_USD'] * (1 - (tax * metrics['PVD']) * (1 - metrics['ITC'] / 2) - metrics['ITC'])) + (NPV_OM_N + NPV_htr_ARMO_N + NPV_batt_ARMO_N) -
@@ -791,6 +794,7 @@ class System: #need to set dict objects to exclude timeseries for metrics
         # Levelized cost of power from system
         metrics['LCOE_real_USD_kWh'] = (NPV_ARR - Rv) / NPV_renewables_N
         metrics['LCOE_residual_value'] = Rv
+        metrics['NPV_fuel_cost_USD'] = NPV_fuel_cost
 
         return metrics
     
@@ -829,8 +833,8 @@ class System: #need to set dict objects to exclude timeseries for metrics
         metrics['grid_to_load_MWh_e'] = df.grid_to_load_MWh_e.sum()
         metrics['grid_to_load_annual_MWh_e'] = df.grid_to_load_MWh_e.groupby(df.index.year).sum().astype(int).to_list()
         metrics['system_to_load_annual_MWh_e'] = self.load_satisfaction_annual()
-        metrics['annual_fuel_energy_MJ'] = df['fuel_energy_MJ'].sum()
-        metrics['annual_fuel_mass_kg'] = df['fuel_mass_kg'].sum()
+        metrics['annual_fuel_energy_MJ'] = df['fuel_energy_MJ'].groupby(df.index.year).sum().astype(int).to_list()
+        metrics['annual_fuel_mass_kg'] = df['fuel_mass_kg'].groupby(df.index.year).sum().astype(int).to_list()
 
         # Calculate the start and end indices for March 1 and June 1
         start_index = 60 * 24  # March 1
